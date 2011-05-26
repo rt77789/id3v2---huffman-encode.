@@ -1,0 +1,228 @@
+#include <iostream>
+#include <vector>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+#include <cassert>
+
+using namespace std;
+typedef unsigned int u_int;
+
+
+class Frame {
+	public:
+		char id[4];
+		u_int size;
+		char flags[2];
+
+		char *data;
+		Frame(const char *_id, u_int _size, const char *_flags, const char *_data):size(_size) {
+			memcpy(id, _id, 4);
+			memcpy(flags, _flags, 2);
+			data = new char[size];
+			if(NULL == data) {
+				fprintf(stderr, "new fail.\n");
+				exit(-1);
+			}
+			memcpy(data, _data, size);
+		}
+		Frame() {}
+		~Frame() {
+			if(data != NULL)
+				delete[] data;
+		}
+};
+Frame frameV[1024];
+u_int fnum = 0;
+void readHeader(FILE* fin);
+bool readFrameHeader(FILE *fin);
+bool read(char *str, u_int size, FILE *fin); 
+void write(char *str, u_int size, FILE *fout) ;
+
+void UFID(const char *data);
+void TXXX(const char *data);
+void WXXX(const char *data);
+void IPLS(const char *data);
+void MCDI(const char *data);
+void ETCO(const char *data);
+void MLLT(const char *data);
+void SYTC(const char *data);
+void USLT(const char *data);
+void SYLT(const char *data);
+void COMM(const char *data);
+void RVAD(const char *data);
+void EQUA(const char *data);
+void RVRB(const char *data);
+void APIC(const char *data);
+void GEOB(const char *data);
+void PCNT(const char *data);
+void POPM(const char *data);
+void RBUF(const char *data);
+void AENC(const char *data);
+void LINK(const char *data);
+void POSS(const char *data);
+void USER(const char *data);
+void OWNE(const char *data);
+void COMR(const char *data);
+void ENCR(const char *data);
+void GRID(const char *data);
+void PRIV(const char *data);
+
+void T0_Z(const char *data);
+void W0_Z(const char *data);
+
+// 璇诲叆header, 10 bytes.
+void readHeader(FILE* fin) {
+	char str[10];
+	read(str, 10, fin);
+	char flags = str[6];
+	if(flags & 0x40) {
+		// there exist a extended header 
+		//readExtendedHeader(fin);
+	}
+}
+// extended header (option)
+void readExtendedHeader(FILE *fin) {
+	char str[10];
+	//read(str, 10, fin);
+}
+bool isValidTag(char *ss) {
+	const char *tag[] = {
+		"AENC","APIC","COMM","COMR","ENCR","EQUA","ETCO","GEOB","GRID","IPLS",
+		"LINK","MCDI","MLLT","OWNE","PRIV","PCNT","POPM","POSS","RBUF","RVAD",
+		"RVRB","SYLT","SYTC","TALB","TBPM","TCOM","TCON","TCOP","TDAT","TDLY",
+		"TENC","TEXT","TFLT","TIME","TIT1","TIT2","TIT3","TKEY","TLAN","TLEN",
+		"TMED","TOAL","TOFN","TOLY","TOPE","TORY","TOWN","TPE1","TPE2","TPE3",
+		"TPE4","TPOS","TPUB","TRCK","TRDA","TRSN","TRSO","TSIZ","TSRC","TSSE",
+		"TYER","TXXX","UFID","USER","USLT","WCOM","WCOP","WOAF","WOAR","WOAS",
+		"WORS","WPAY","WPUB","WXXX",};
+
+	for(int i = 0; i < 74; ++i) 
+		if(strncmp(tag[i], ss, 4) == 0) 
+			return true;
+	return false;
+}
+// frame header (10 bytes)
+bool readFrameHeader(FILE *fin) {
+	char str[10];
+	read(str, 10, fin);
+	if(!isValidTag(str)) return false;
+	u_int size = 0;
+	for(u_int i = 4; i < 8; ++i)
+		size = (size << 8) | (str[i] & 0x000000ff);
+	printf("frame size: %u\n", size);
+	char data[size+1];
+	read(data, size, fin);
+
+	Frame fr(str, size, str + 8, data);
+	write(str, 4, stdout);
+	putchar('\t');
+	printf(" [%x] \n", str[4]);
+	//frameV[fnum++] = fr;
+	if(strncmp(str, "APIC", 4) == 0) {
+		char textEncoding = data[0];
+		printf("text encoding: [%x] \nMIME type: %s \n", data[0], data + 1);
+		int i = 1;
+		while(data[i] != 0) 
+			++i;
+		++i;
+		char picType = data[i++];
+		printf("picture type: [%x] \n", picType);
+		while(data[i] != 0) {
+			putchar(data[i]);
+			++i;
+		}
+		putchar('\n');
+		++i;
+		FILE *fout = fopen("out.jpg", "wb");
+		for(; i < size; ++i) {
+			fprintf(fout, "%c", data[i]);
+		}
+	}
+	return true;
+}
+// freme body
+// read 
+bool read(char *str, u_int size, FILE *fin) {
+	int n = fread(str, sizeof(char), size, fin);
+	if(n < size) {
+		fprintf(stderr, "fread less than need.\n");
+		return false;
+		//exit(-1);
+	}
+	return true;
+}
+void write(char *str, u_int size, FILE *fout) {
+	for(u_int i = 0; i < size; ++i)
+		putchar(str[i]);
+}
+
+int
+main(int argc, char **argv) {
+
+	FILE *fin = fopen(argv[1], "rb");
+	if(NULL == fin) {
+		fprintf(stderr, "open file fail.\n");
+		exit(-1);
+	}
+	readHeader(fin);
+	while(readFrameHeader(fin));
+
+//	for(u_int i = 0; i < fnum; ++i) {
+//		if(strncmp(frameV[i].id, "APIC", 4) == 0) {
+//			Frame fr = frameV[i];
+//			char textEncoding = fr.data[0];
+//			printf("text encoding: [%x] \nMIME type: %s \n", fr.data[0], &fr.data[1]);
+//		}
+//	}
+	fclose(fin);
+	return 0;
+}
+
+void UFID(const char *data);
+void TXXX(const char *data);
+void WXXX(const char *data);
+void IPLS(const char *data);
+void MCDI(const char *data);
+void ETCO(const char *data);
+void MLLT(const char *data);
+void SYTC(const char *data);
+void USLT(const char *data);
+void SYLT(const char *data);
+void COMM(const char *data);
+void RVAD(const char *data);
+void EQUA(const char *data);
+void RVRB(const char *data);
+
+void APIC(const char *data) {
+	char textEncoding = data[0];
+	char *mend = strchr(data + 1, 0);
+    assert(end == NULL);	
+	printf("text encoding: [%x] \nMIME type: %s \n", data[0], data + 1);
+	char picType = *(++mend);
+	printf("picture type: [%x] \n", picType);
+	printf("
+	putchar('\n');
+	++i;
+	FILE *fout = fopen("out.jpg", "wb");
+	for(; i < size; ++i) {
+		fprintf(fout, "%c", data[i]);
+	}
+}
+void GEOB(const char *data);
+void PCNT(const char *data);
+void POPM(const char *data);
+void RBUF(const char *data);
+void AENC(const char *data);
+void LINK(const char *data);
+void POSS(const char *data);
+void USER(const char *data);
+void OWNE(const char *data);
+void COMR(const char *data);
+void ENCR(const char *data);
+void GRID(const char *data);
+void PRIV(const char *data);
+
+void T0_Z(const char *data);
+void W0_Z(const char *data);
+

@@ -1,0 +1,270 @@
+#include <iostream>
+#include <cstdio>
+#include <cstdlib>
+#include <map>
+#include <queue>
+#include <cassert>
+#include <cstring>
+
+using namespace std;
+typedef unsigned int u_int;
+struct Node {
+	char key;
+	u_int freq;
+	Node *self;
+	Node *left, *right;
+	Node() { left = right = 0; key = 0; self = this;}
+	bool operator<(const Node & _n) const {
+		return freq > _n.freq ? true : freq < _n.freq ? false : key < _n.key ? true : false;
+	}
+};
+const u_int BLOCK_SIZE = 1024;
+class Huffman {
+	public:
+		Node *buildTree() {
+			priority_queue<Node> Q;
+			u_int num = 0;
+			for(u_int i = 0; i < 256; ++i) {
+				if(counter[i] == 0) continue;
+				Node *ans = new Node();
+				ans->key = i, ans->freq = counter[i], ans->self = ans;
+				//fprintf(stderr, "%d - %d\n", ans->key, ans->freq);
+				Q.push(*ans);
+				++num;
+			}
+			for(int i = 1; i < num; ++i) {
+				assert(!Q.empty());
+				Node first = Q.top(); Q.pop();
+				assert(!Q.empty());
+				Node second = Q.top(); Q.pop();
+				//fprintf(stderr, "(%d - %d)\n", first.freq, second.freq);
+				Node *ans = new Node();
+				ans->left = first.self, ans->right = second.self;
+				ans->freq = first.freq + second.freq;
+				Q.push(*ans);
+			}
+			assert(!Q.empty());
+			return Q.top().self;
+		}
+		void trace(char *_code, u_int depth, const Node * _node) {
+			if(_node->left == NULL && _node->right == NULL) {
+				fprintf(stderr, "key: %d\tdepth: %d\tcode: ", _node->key, depth);
+				for(int i = 0; i < depth; i++)
+					fprintf(stderr, "%d", *(_code - depth + i));
+				fprintf(stderr, "\n");
+				return;
+			}
+			if(_node->left) {
+				//fprintf(stderr, "(");
+				*_code = 0;
+				trace(_code+1, depth + 1, _node->left);
+				*_code = 2;
+			}
+			if(_node->right) {
+				*_code = 1;
+				trace(_code+1, depth+1, _node->right);
+				*_code = 2;
+				//fprintf(stderr, ")");
+			}
+		}
+		void readFile(const char *file) {
+			FILE *fin = fopen(file, "rb");
+			if(fin== NULL) {
+				fprintf(stderr, "fopen fail.\n");
+				exit(-1);
+			}
+			char str[BLOCK_SIZE];
+			u_int n;
+			memset(counter, 0, sizeof(counter));
+			while((n = fread(str, sizeof(char), BLOCK_SIZE, fin)) > 0) 
+				for(u_int i = 0; i < n; ++i) counter[(int)str[i]]++;
+			//for(int i = 0; i < 256; ++i) fprintf(stderr, "counter[%d]: %d\n", i, counter[i]);
+			fclose(fin);
+		}
+		void compress(const char *file, const char *outFile) {
+			readFile(file);
+			Node *root = buildTree();
+			char _code[256];
+			//trace(_code, 0, root);
+			encode(_code, 0, root);
+			writeFile(file, outFile);
+		}
+		void i2ch(u_int n, char *str) {
+
+			for(int i = 0; i < 4; ++i) {
+				*(str+i) = 0xff & (n >> ((3-i)*8));
+			}
+		}
+		void writeFile(const char *file, const char *com) {
+			FILE *fin = fopen(file, "rb");
+			FILE *fout = fopen(com, "wb");
+			if(fin== NULL || fout == NULL) {
+				fprintf(stderr, "fopen fail.\n");
+				exit(-1);
+			}
+			u_int num = 0;
+			for(int i = 0; i < 256; ++i) if(counter[i] > 0) num++;
+			char ntr[8] = {0};
+			i2ch(num, ntr);
+			//fprintf(stderr, "num : %d-%d-%d-%d  - %u \n", ntr[0], ntr[1], ntr[2], ntr[3], num);
+			if(fwrite(ntr, sizeof(char), 4, fout) < 4) {
+					fprintf(stderr, "fwrite 4 error.\n");
+					exit(-1);
+				}
+
+			for(int i = 0; i < 256; ++i) {
+				if(counter[i] == 0) continue;
+				char ttr[8] = {0};
+				ttr[0] = i; 
+				i2ch(counter[i], ttr+1);
+				if(fwrite(ttr, sizeof(char), 5, fout) < 5) {
+					fprintf(stderr, "fwrite 5 error.\n");
+					exit(-1);
+				}
+			}
+			char str[BLOCK_SIZE];
+			char ctr[BLOCK_SIZE];
+			memset(ctr, 0, sizeof(ctr));
+			u_int n, ex = 0;
+			int ix = 7;
+			while((n = fread(str, sizeof(char), BLOCK_SIZE, fin)) > 0) {
+				for(u_int i = 0; i < n; ++i) {
+					for(int j = 0; j < mask[str[i]]; ++j) {
+						if(code[str[i]][j] == 1)
+						ctr[ex] = ctr[ex] | (1<<ix);
+						ix--;
+						if(ix < 0) ex++, ix = 7;
+						if(ex == BLOCK_SIZE) {
+							//写入文件
+							if(fwrite(ctr, sizeof(char), ex, fout) < ex) {
+								fprintf(stderr, "fwrite error.\n");
+								exit(-1);
+							}
+							memset(ctr, 0, sizeof(ctr));
+							ex = 0, ix = 7;
+						}
+
+					}
+				}
+			}
+			//fprintf(stderr, "write in to compress ex %d\n", ex);
+			if(fwrite(ctr, sizeof(char), ex, fout) < ex) {
+				fprintf(stderr, "fwrite error.\n");
+				exit(-1);
+			}
+			fclose(fin);
+			fclose(fout);
+		}
+		void binaryPrint(char n) {
+		 	for(int i = 7; i >= 0; --i)
+				fprintf(stderr, "%d", ((1<<i) & (0x000000ff & n)) ? 1 : 0);
+		}
+		//_code : 0, _mask : 0
+		void encode(char *_code, char _mask, const Node *node) {
+			if(node->left == NULL && node->right == NULL) {
+				for(int i = 0; i < _mask; ++i) {
+					code[node->key][i] = *(_code-_mask+i);
+				}
+				mask[node->key] = _mask;
+				return ;
+			}
+			if(node->left) {
+				*_code = 0;
+				encode(_code+1, _mask+1, node->left);
+			}
+			if(node->right) {
+				*_code = 1;
+				encode(_code+1, _mask+1, node->right);
+			}
+		}
+			
+		void decompress(const char *file, const char *outFile) {
+			FILE *fin = fopen(file, "rb");
+			FILE *fout = fopen(outFile, "wb");
+			if(fin == NULL || fout == NULL) {
+				fprintf(stderr, "fopen fail.\n");
+				exit(-1);
+			}
+			char str[BLOCK_SIZE] = {0};
+			memset(counter, 0, sizeof(counter));
+			if(fread(str, sizeof(char), 4, fin) < 4) {
+				fprintf(stderr, "fread first 4 char fail.\n");
+				exit(-1);
+			}
+			u_int n = ch2i(str);
+			//fprintf(stderr, "n : %d-%d-%d-%d  - %u \n", str[0], str[1], str[2], str[3], n);
+			for(u_int i = 0; i < n; ++i) {
+				if(fread(str, sizeof(char), 5, fin) < 5) {
+					fprintf(stderr, "fread 5-group fail.\n");
+					exit(-1);
+				}
+				counter[(int)str[0]] = ch2i(str+1);
+			}
+			Node *root = buildTree();
+			Node *ans = root;
+			char _code[256];
+			//trace(_code, 0, ans);
+			u_int ix = 0;
+			char ctr[BLOCK_SIZE];
+			
+			while((n = fread(str, sizeof(char), BLOCK_SIZE, fin)) > 0) {
+				for(u_int i = 0; i < n; ++i) {
+					for(int j = 7; j >= 0; --j) {
+						//fprintf(stderr, "%d",((1<<j) & (0x000000ff & str[i])) ? 1 : 0); 
+						if(((1<<j) & (0x000000ff & str[i]))) {
+							assert(ans->right != NULL);
+							ans = ans->right;
+						}
+						else {
+							assert(ans->left != NULL);
+							ans = ans->left;
+						}
+						if(ans->left == NULL && ans->right == NULL) {
+							//fprintf(stderr, "\n");
+							ctr[ix++] = ans->key;
+							if(ix == BLOCK_SIZE) {
+								//写入文件
+								fwrite(ctr, sizeof(char), ix, fout);		
+								ix = 0;
+							}
+							ans = root;
+						}
+					}
+				}
+			}
+			fwrite(ctr, sizeof(char), ix, fout);		
+			fclose(fin);
+			fclose(fout);
+		}
+		u_int ch2i(const char *str) {
+			u_int res = 0;
+			for(int i = 0; i < 4; ++i) res = (res<<8) | (0x000000ff & str[i]);
+			return res;
+		}
+	private:
+		char mask[256];
+		char code[256][256];
+		u_int counter[256];
+};
+int
+main(int argc, char **argv) {
+	Huffman huff;
+	// huffman -c compress compressed
+	// huffman -d decompress decompressed
+	if(argc < 4) {
+		fprintf(stderr, "usage: huffman -cd file.in file.out\n");
+		exit(-1);
+	}
+	if(strcmp(argv[1], "-c") == 0) {
+		huff.compress(argv[2], argv[3]);
+	}
+	else if(strcmp(argv[1], "-d") == 0) {
+		huff.decompress(argv[2], argv[3]);
+	}
+	else {
+		fprintf(stderr, "usage: option -c or -d.\n");
+		exit(-1);
+	}
+
+	return 0;
+}
